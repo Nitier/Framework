@@ -5,6 +5,9 @@
   "require": {
     "php": "^8.4",
     "php-di/php-di": "^7.1",
+    "psr/http-message": "^2.0",
+    "psr/http-server-handler": "^1.0",
+    "psr/http-server-middleware": "^1.0",
     "symfony/console": "^7.3"
   },
   "require-dev": {
@@ -15,7 +18,8 @@
   "autoload": {
     "psr-4": {
       "Framework\\": "src/",
-      "App\\": "test-app/src/"
+      "App\\": "test-app/src/",
+      "Psr\\": "src/Psr/"
     }
   },
   "autoload-dev": {

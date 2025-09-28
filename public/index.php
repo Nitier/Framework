@@ -17,3 +17,5 @@ $kernel->loadApplication(implode(
         'test-app'
     ]
 ));
+
+$kernel->handle();

@@ -6,8 +6,18 @@ namespace Framework;
 
 use DI\Container;
 use DI\ContainerBuilder;
-use Framework\General\Path;
 use Framework\General\Environment;
+use Framework\General\Mode;
+use Framework\General\Path;
+use Framework\Http\Message\ServerRequest;
+use Framework\Http\Middleware\MiddlewarePipeline;
+use Framework\Http\ResponseFactory;
+use Framework\Http\ResponseEmitter;
+use Framework\Http\Routing\HandlerResolver;
+use Framework\Http\Routing\Router;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Throwable;
 
 class Kernel
 {
@@ -120,5 +130,145 @@ class Kernel
     {
         // Check service existence for simple key
         return $this->container->has($key);
+    }
+
+    public const ERROR_HANDLER_NOT_FOUND = 'kernel.http.error.not_found';
+    public const ERROR_HANDLER_METHOD_NOT_ALLOWED = 'kernel.http.error.method_not_allowed';
+    public const ERROR_HANDLER_EXCEPTION = 'kernel.http.error.exception';
+
+    public function handle(?ServerRequestInterface $request = null, bool $emit = true): ResponseInterface
+    {
+        if (!isset($this->container)) {
+            $this->buildContainer($this->settings);
+        }
+
+        /** @var Router $router */
+        $router = $this->get(Router::class);
+        if ($router === null) {
+            throw new \RuntimeException('Router service is not configured.');
+        }
+
+        $request ??= $this->get(ServerRequestInterface::class);
+        if ($request === null) {
+            $request = ServerRequest::fromGlobals();
+        }
+
+        $result = $router->match($request);
+        if (!$result->isSuccess()) {
+            if ($result->isMethodNotAllowed()) {
+                $response = $this->resolveErrorResponse(
+                    self::ERROR_HANDLER_METHOD_NOT_ALLOWED,
+                    [$request, $result->getAllowedMethods()],
+                    static function (ServerRequestInterface $req, array $allowedMethods): ResponseInterface {
+                        $response = ResponseFactory::from('Method Not Allowed', 405);
+                        if ($allowedMethods !== []) {
+                            $response = $response->withHeader('Allow', implode(', ', $allowedMethods));
+                        }
+                        return $response;
+                    }
+                );
+
+                return $this->finalize($response, $emit);
+            }
+
+            $response = $this->resolveErrorResponse(
+                self::ERROR_HANDLER_NOT_FOUND,
+                [$request],
+                static fn(ServerRequestInterface $req): ResponseInterface => ResponseFactory::from('Not Found', 404)
+            );
+
+            return $this->finalize($response, $emit);
+        }
+
+        $match = $result->getMatch();
+        if ($match === null) {
+            $response = $this->resolveErrorResponse(
+                self::ERROR_HANDLER_NOT_FOUND,
+                [$request],
+                static fn(ServerRequestInterface $req): ResponseInterface => ResponseFactory::from('Not Found', 404)
+            );
+
+            return $this->finalize($response, $emit);
+        }
+
+        $route = $match->getRoute();
+        $parameters = $match->getParameters();
+        foreach ($parameters as $name => $value) {
+            $request = $request->withAttribute($name, $value);
+        }
+
+        $request = $request
+            ->withAttribute('route', $route)
+            ->withAttribute('routeParameters', $parameters)
+            ->withAttribute('routeName', $route->getName());
+
+        /** @var HandlerResolver $handlerResolver */
+        $handlerResolver = $this->get(HandlerResolver::class);
+        $handler = $handlerResolver->resolve($route->getHandler());
+
+        $middlewarePipeline = new MiddlewarePipeline(
+            $this->container,
+            array_merge($router->getGlobalMiddleware(), $route->getMiddleware()),
+            $handler
+        );
+
+        try {
+            $response = $middlewarePipeline->handle($request);
+        } catch (Throwable $exception) {
+            /** @var Mode|null $mode */
+            $mode = $this->get(Mode::class);
+            if ($mode !== null && $mode->isDebug()) {
+                throw $exception;
+            }
+
+            $response = $this->resolveErrorResponse(
+                self::ERROR_HANDLER_EXCEPTION,
+                [$request, $exception],
+                static function (ServerRequestInterface $req, Throwable $e): ResponseInterface {
+                    return ResponseFactory::from('Internal Server Error', 500);
+                }
+            );
+        }
+
+        return $this->finalize($response, $emit);
+    }
+
+    /**
+     * @param array<int, mixed> $arguments
+     */
+    private function resolveErrorResponse(string $identifier, array $arguments, callable $default): ResponseInterface
+    {
+        $handler = $this->get($identifier);
+        if ($handler instanceof ResponseInterface) {
+            return $handler;
+        }
+
+        if (is_callable($handler)) {
+            $response = $handler(...$arguments);
+            if ($response instanceof ResponseInterface) {
+                return $response;
+            }
+        }
+
+        $response = $default(...$arguments);
+        if (!$response instanceof ResponseInterface) {
+            throw new \RuntimeException('Error handler must return an instance of ResponseInterface.');
+        }
+
+        return $response;
+    }
+
+    private function finalize(ResponseInterface $response, bool $emit): ResponseInterface
+    {
+        if ($emit) {
+            $emitter = $this->get(ResponseEmitter::class);
+            if (!is_object($emitter) || !method_exists($emitter, 'emit')) {
+                $emitter = new ResponseEmitter();
+            }
+
+            $emitter->emit($response);
+        }
+
+        return $response;
     }
 }

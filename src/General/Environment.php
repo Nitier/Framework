@@ -58,9 +58,11 @@ class Environment extends Entity
      */
     public function get(string $key, mixed $default = null): mixed
     {
-        $value = $this->kernel()->has($key) &&
-            $this->kernel()->get($key);
-        return $value === false ? $default : $this->castValue($value);
+        if (!$this->kernel()->has($key)) {
+            return $default;
+        }
+        $value = $this->kernel()->get($key);
+        return $this->castValue($value);
     }
 
     /**

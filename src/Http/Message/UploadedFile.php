@@ -11,17 +11,6 @@ use RuntimeException;
 
 class UploadedFile implements UploadedFileInterface
 {
-    private const ERROR_MESSAGES = [
-        UPLOAD_ERR_OK => 'There is no error, the file uploaded successfully',
-        UPLOAD_ERR_INI_SIZE => 'The uploaded file exceeds the upload_max_filesize directive',
-        UPLOAD_ERR_FORM_SIZE => 'The uploaded file exceeds the MAX_FILE_SIZE directive',
-        UPLOAD_ERR_PARTIAL => 'The uploaded file was only partially uploaded',
-        UPLOAD_ERR_NO_FILE => 'No file was uploaded',
-        UPLOAD_ERR_NO_TMP_DIR => 'Missing temporary folder',
-        UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk',
-        UPLOAD_ERR_EXTENSION => 'A PHP extension stopped the file upload',
-    ];
-
     private StreamInterface $stream;
     private ?int $size;
     private int $error;
@@ -43,6 +32,9 @@ class UploadedFile implements UploadedFileInterface
         $this->clientMediaType = $clientMediaType;
     }
 
+    /**
+     * @param array<string, mixed> $value
+     */
     public static function createFromSpec(array $value): UploadedFileInterface
     {
         if (!isset($value['error'])) {
@@ -50,20 +42,30 @@ class UploadedFile implements UploadedFileInterface
         }
 
         $stream = new Stream();
-        if (!empty($value['tmp_name']) && is_uploaded_file($value['tmp_name'])) {
-            $resource = fopen($value['tmp_name'], 'rb');
+        $tmpName = $value['tmp_name'] ?? null;
+        if (is_string($tmpName) && $tmpName !== '' && is_uploaded_file($tmpName)) {
+            $resource = fopen($tmpName, 'rb');
             if ($resource === false) {
                 throw new RuntimeException('Unable to open temporary uploaded file');
             }
             $stream = new Stream($resource);
         }
 
+        $size = $value['size'] ?? null;
+        $clientFilename = $value['name'] ?? null;
+        $clientMediaType = $value['type'] ?? null;
+        $errorValue = $value['error'];
+        if (!is_numeric($errorValue)) {
+            throw new InvalidArgumentException('Invalid uploaded file specification: error must be numeric');
+        }
+        $error = (int) $errorValue;
+
         return new self(
             $stream,
-            isset($value['size']) ? (int) $value['size'] : null,
-            (int) $value['error'],
-            $value['name'] ?? null,
-            $value['type'] ?? null
+            is_numeric($size) ? (int) $size : null,
+            $error,
+            is_string($clientFilename) ? $clientFilename : null,
+            is_string($clientMediaType) ? $clientMediaType : null
         );
     }
 
@@ -76,13 +78,13 @@ class UploadedFile implements UploadedFileInterface
         return $this->stream;
     }
 
-    public function moveTo($targetPath): void
+    public function moveTo(string $targetPath): void
     {
         if ($this->moved) {
             throw new RuntimeException('Uploaded file has already been moved');
         }
 
-        if (!is_string($targetPath) || $targetPath === '') {
+        if ($targetPath === '') {
             throw new InvalidArgumentException('Target path must be a non-empty string');
         }
 

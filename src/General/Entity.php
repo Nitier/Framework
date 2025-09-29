@@ -6,17 +6,25 @@ namespace Framework\General;
 
 use Framework\Kernel;
 
+/**
+ * Base helper class for framework services that require access to the kernel.
+ *
+ * Many small helpers (environment, path resolver, mode checker) are resolved
+ * from the container and frequently need to access other services. This class
+ * provides a protected façade so that descendants can easily query the kernel
+ * and shared services without exposing the kernel to the public API.
+ */
 abstract class Entity
 {
     protected Kernel $kernel;
+
     public function __construct(Kernel $kernel)
     {
         $this->kernel = $kernel;
     }
 
     /**
-     * Returns the Kernel instance from the kernel container.
-     * @return Kernel
+     * Retrieve the kernel instance backing the current service.
      */
     protected function kernel(): Kernel
     {
@@ -24,8 +32,7 @@ abstract class Entity
     }
 
     /**
-     * Returns the Path instance from the kernel container.
-     * @return Path
+     * Shortcut to access the shared `Path` value object from the container.
      */
     protected function path(): Path
     {
@@ -35,8 +42,7 @@ abstract class Entity
     }
 
     /**
-     * Returns the Mode instance from the kernel container.
-     * @return Mode
+     * Shortcut to resolve the runtime mode helper (`Mode`) from the container.
      */
     protected function mode(): Mode
     {

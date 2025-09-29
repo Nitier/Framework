@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Framework\Http\Middleware;
 
+use Closure;
 use Framework\Http\ResponseFactory;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -33,22 +34,8 @@ class CallableRequestHandler implements RequestHandlerInterface
 
     private function resolveParameterCount(callable $handler): int
     {
-        if (is_array($handler)) {
-            [$classOrObject, $method] = $handler;
-            if (is_object($classOrObject)) {
-                $reflection = new \ReflectionMethod($classOrObject, (string) $method);
-            } else {
-                $reflection = new \ReflectionMethod((string) $classOrObject, (string) $method);
-            }
-            return $reflection->getNumberOfParameters();
-        }
-
-        if (is_object($handler) && method_exists($handler, '__invoke')) {
-            $reflection = new \ReflectionMethod($handler, '__invoke');
-            return $reflection->getNumberOfParameters();
-        }
-
-        $reflection = new \ReflectionFunction($handler);
+        $closure = Closure::fromCallable($handler);
+        $reflection = new \ReflectionFunction($closure);
         return $reflection->getNumberOfParameters();
     }
 }

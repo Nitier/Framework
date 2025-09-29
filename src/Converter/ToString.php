@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace Framework\Converter;
 
 /**
- * Class ToString
- * Transforms various PHP data types into their string representation
+ * Utility helper that converts arbitrary PHP values into a string representation.
+ *
+ * The converter is intentionally conservative: complex structures are JSON encoded,
+ * resources fall back to a short message, and unknown types yield an empty string.
+ * It is mainly used for normalising superglobal values before they are injected
+ * into PSR-7 objects such as `ServerRequest` and HTTP headers.
  */
 class ToString
 {

@@ -10,8 +10,22 @@ use Framework\Http\Message\Response;
 use Framework\Http\Message\Stream;
 use Psr\Http\Message\ResponseInterface;
 
+/**
+ * Factory that converts controller return values into PSR-7 responses.
+ *
+ * Controllers and middleware are allowed to return scalars, arrays, JSON
+ * serialisable objects, raw streams or full `ResponseInterface` instances. This
+ * factory handles the conversion logic in one place so the rest of the HTTP
+ * pipeline can work with strict PSR-7 types.
+ */
 class ResponseFactory
 {
+    /**
+     * Normalise arbitrary content into a `ResponseInterface`.
+     *
+     * @param mixed $content Value returned by a controller or middleware.
+     * @param int   $status  Optional status code to apply to generated responses.
+     */
     public static function from(mixed $content, int $status = 200): ResponseInterface
     {
         if ($content instanceof ResponseInterface) {
@@ -30,6 +44,14 @@ class ResponseFactory
             $content = (string) $content;
         }
 
-        return new Response($status, [], new Stream((string) $content));
+        if (is_scalar($content)) {
+            return new Response($status, [], new Stream((string) $content));
+        }
+
+        if (is_resource($content)) {
+            return new Response($status, [], new Stream($content));
+        }
+
+        return new Response($status, [], new Stream(''));
     }
 }

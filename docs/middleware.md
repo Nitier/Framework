@@ -1,33 +1,65 @@
-# Middleware Pipeline
+# Middleware
 
-Middleware must implement `Psr\Http\Server\MiddlewareInterface`. The framework also accepts callables and container service identifiers, coercing them into compliant middleware via `CallableMiddleware`.
+Middleware реализуют паттерн «цепочка ответственности» и соответствуют спецификации PSR-15. Ниже — руководство по настройке и написанию middleware.
 
-## Global Middleware
+## MiddlewarePipeline
 
-Register global middleware strings or callables in configuration:
+`Framework\Http\Middleware\MiddlewarePipeline` собирает массив middleware и финальный обработчик:
+
+- принимает контейнер PHP-DI для разрешения строковых определений;
+- внедряет глобальные middleware (`Router::GLOBAL_MIDDLEWARE`) и маршрутные;
+- каждый middleware должен возвращать `ResponseInterface`, вызывая `$next->handle()` для продолжения цепочки.
+
+## Определение middleware
+
+### Глобальные middleware
 
 ```php
-use App\Http\Middleware\RequestIdMiddleware;
 use Framework\Http\Routing\Router;
+use function DI\value;
 
 return [
-    Router::GLOBAL_MIDDLEWARE => [
+    Router::GLOBAL_MIDDLEWARE => value([
         RequestIdMiddleware::class,
-    ],
+    ]),
 ];
 ```
 
-These run for every request before route-specific middleware.
+Все запросы пройдут через `RequestIdMiddleware`, который добавляет `requestId` в атрибуты запроса и заголовок ответа.
 
-## Route Middleware
-
-Attach middleware only to a specific route:
+### Маршрутные middleware
 
 ```php
-$router->get('/profile', [ProfileController::class, 'show'], [EnsureAuthenticated::class]);
+$router->get('/hello/{name}', [HomeController::class, 'greet'], [RouteAttributeMiddleware::class]);
 ```
 
-## Custom Middleware Example
+Middleware выполнится только для указанного маршрута.
+
+### Групповые middleware
+
+```php
+$router->group([
+    'prefix' => 'admin',
+    'middleware' => [EnsureAuthenticated::class, LogUserAction::class],
+], static function (Router $router): void {
+    $router->get('/dashboard', [DashboardController::class, 'index']);
+});
+```
+
+Все маршруты `/admin/*` получают middleware авторизации и логирования.
+
+## Форматы описания middleware
+
+Фреймворк поддерживает несколько форматов:
+
+- **Экземпляр** `MiddlewareInterface` — напрямую используется в цепочке.
+- **Callable** `(ServerRequestInterface $request, RequestHandlerInterface $next)`: вам возвращается ответ, вы можете модифицировать запрос/ответ.
+- **Строка `Class@method` или `Class::method`** — через контейнер создаётся объект и вызывается метод.
+- **Массив `[ClassName::class, 'method']`** — аналогично строковому формату.
+
+`MiddlewarePipeline::resolveMiddleware()` приводит все форматы к `MiddlewareInterface` при помощи обёртки `CallableMiddleware`.
+
+## Пример middleware
 
 ```php
 use Psr\Http\Message\ResponseInterface;
@@ -48,6 +80,16 @@ class TimingMiddleware implements MiddlewareInterface
 }
 ```
 
-Callables with a `(ServerRequestInterface $request, RequestHandlerInterface $next)` signature are supported and automatically wrapped. Middleware may also opt into a third `$attributes` argument to receive the full request attribute bag.
+Добавьте его в глобальный список или к конкретному маршруту.
 
-The `MiddlewarePipeline` preserves declaration order: items earlier in the array execute before later ones, allowing deterministic around filters.
+## Тестирование middleware
+
+`MiddlewarePipelineTest` демонстрирует проверку порядка выполнения middleware и модификацию атрибутов запроса/ответа. Используйте `$pipeline->handle(new ServerRequest(...))` с отключением эмиссии (`Kernel::handle($request, false)`) для интеграционных тестов.
+
+## Практические советы
+
+- Возвращайте новый `ResponseInterface`. Желаемый способ — использовать `JsonResponse`, `HtmlResponse` или `ResponseFactory::from()`.
+- Middleware должен быть чистым по отношению к контейнеру: зависимости внедряйте через конструктор.
+- Если middleware зависит от сервисов (например, логгера), зарегистрируйте его в контейнере, затем передайте класс в конфигурации.
+
+Дополнительная информация: [маршрутизация](routing.md), [ответы](responses.md), [ядро](kernel.md).

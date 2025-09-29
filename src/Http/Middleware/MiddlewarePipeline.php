@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Framework\Http\Middleware;
 
+use Closure;
 use DI\Container;
 use Framework\Http\ResponseFactory;
 use Psr\Http\Message\ResponseInterface;
@@ -14,52 +15,49 @@ use RuntimeException;
 
 class MiddlewarePipeline implements RequestHandlerInterface
 {
-    private Container $container;
-    /** @var array<int, callable|string|array{0: mixed, 1?: string}> */
+    /** @var array<int, callable|string|array{0: class-string|object, 1?: string}> */
     private array $middlewares;
+    private Container $container;
     private RequestHandlerInterface $finalHandler;
 
     /**
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $middlewares
+     * @param array<int, callable|string|array{0: class-string|object, 1?: string}> $middlewares
      */
     public function __construct(Container $container, array $middlewares, RequestHandlerInterface $finalHandler)
     {
         $this->container = $container;
-        $this->middlewares = array_values($middlewares);
+        $this->middlewares = $middlewares;
         $this->finalHandler = $finalHandler;
     }
 
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
-        $handler = array_reduce(
-            array_reverse($this->middlewares),
-            function (RequestHandlerInterface $next, callable|string|array $definition): RequestHandlerInterface {
-                $middleware = $this->resolveMiddleware($definition);
-                return new class ($middleware, $next) implements RequestHandlerInterface {
-                    private MiddlewareInterface $middleware;
-                    private RequestHandlerInterface $next;
+        $handler = $this->finalHandler;
+        foreach (array_reverse($this->middlewares) as $definition) {
+            $middleware = $this->resolveMiddleware($definition);
+            $handler = new class ($middleware, $handler) implements RequestHandlerInterface {
+                private MiddlewareInterface $middleware;
+                private RequestHandlerInterface $next;
 
-                    public function __construct(MiddlewareInterface $middleware, RequestHandlerInterface $next)
-                    {
-                        $this->middleware = $middleware;
-                        $this->next = $next;
-                    }
+                public function __construct(MiddlewareInterface $middleware, RequestHandlerInterface $next)
+                {
+                    $this->middleware = $middleware;
+                    $this->next = $next;
+                }
 
-                    public function handle(ServerRequestInterface $request): ResponseInterface
-                    {
-                        return $this->middleware->process($request, $this->next);
-                    }
-                };
-            },
-            $this->finalHandler
-        );
+                public function handle(ServerRequestInterface $request): ResponseInterface
+                {
+                    return $this->middleware->process($request, $this->next);
+                }
+            };
+        }
 
         $response = $handler->handle($request);
         return ResponseFactory::from($response);
     }
 
     /**
-     * @param callable|string|array{0: mixed, 1?: string} $definition
+     * @param callable|string|array{0: class-string|object, 1?: string} $definition
      */
     private function resolveMiddleware(callable|string|array $definition): MiddlewareInterface
     {
@@ -68,22 +66,22 @@ class MiddlewarePipeline implements RequestHandlerInterface
         }
 
         if (is_callable($definition)) {
-            return new CallableMiddleware($definition);
+            return new CallableMiddleware($this->toCallable($definition));
         }
 
         if (is_string($definition)) {
             if (str_contains($definition, '@')) {
                 [$class, $method] = explode('@', $definition, 2);
                 $instance = $this->container->get($class);
-                if (!method_exists($instance, $method)) {
+                if (!is_object($instance) || !method_exists($instance, $method)) {
                     throw new RuntimeException(sprintf('Middleware method %s::%s not found', $class, $method));
                 }
 
-                return new CallableMiddleware([$instance, $method]);
+                return new CallableMiddleware($this->toCallable([$instance, $method]));
             }
 
             if (str_contains($definition, '::') && is_callable($definition)) {
-                return new CallableMiddleware($definition);
+                return new CallableMiddleware($this->toCallable($definition));
             }
 
             $service = $this->container->get($definition);
@@ -92,29 +90,38 @@ class MiddlewarePipeline implements RequestHandlerInterface
             }
 
             if (is_callable($service)) {
-                return new CallableMiddleware($service);
+                return new CallableMiddleware($this->toCallable($service));
             }
 
-            if (method_exists($service, '__invoke')) {
-                return new CallableMiddleware($service);
+            if (is_object($service) && method_exists($service, '__invoke')) {
+                return new CallableMiddleware($this->toCallable($service));
             }
 
             throw new RuntimeException(sprintf('Unable to resolve middleware: %s', $definition));
         }
 
-        if (is_array($definition)) {
-            $resolved = $definition;
-            if (isset($definition[0]) && is_string($definition[0])) {
-                $resolved[0] = $this->container->get($definition[0]);
+        // $definition is array
+        $callable = $definition;
+        if (is_string($definition[0])) {
+            $resolvedService = $this->container->get($definition[0]);
+            if (!is_object($resolvedService)) {
+                throw new RuntimeException('Array middleware definition must resolve to an object instance');
             }
-
-            if (!is_callable($resolved)) {
-                throw new RuntimeException('Array middleware definition is not callable');
-            }
-
-            return new CallableMiddleware($resolved);
+            $callable[0] = $resolvedService;
         }
 
-        throw new RuntimeException('Invalid middleware definition provided');
+        return new CallableMiddleware($this->toCallable($callable));
+    }
+
+    /**
+     * @param callable|string|array{0: class-string|object, 1?: string} $callable
+     */
+    private function toCallable(callable|string|array $callable): callable
+    {
+        if (!is_callable($callable)) {
+            throw new RuntimeException('Resolved middleware is not callable');
+        }
+
+        return Closure::fromCallable($callable);
     }
 }

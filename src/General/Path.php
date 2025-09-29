@@ -4,6 +4,15 @@ declare(strict_types=1);
 
 namespace Framework\General;
 
+/**
+ * Value object describing the base path of the application.
+ *
+ * The framework keeps all filesystem lookups relative to a single root. This
+ * helper ensures that path composition is consistent, trimming redundant
+ * separators and guarding against accidental `..` traversals supplied in
+ * configuration. Consumers can obtain the base directory or build additional
+ * segments using `get()`.
+ */
 class Path
 {
     private string $base;
@@ -12,9 +21,9 @@ class Path
     {
         $this->base = rtrim($base, DIRECTORY_SEPARATOR);
     }
+
     /**
-     * Returns the base path of the application.
-     * @return string
+     * Retrieve the canonical base directory of the application.
      */
     public function base(): string
     {
@@ -22,26 +31,21 @@ class Path
     }
 
     /**
-     * Returns the path of a file or directory relative to the base path.
-     * @param string ...$segments The segments of the path
-     * @return string The absolute path
-     * @example $path->get('app', 'controllers', 'HomeController.php');
+     * Compose an absolute path by appending segments to the base directory.
+     * Empty segments are ignored and each segment is trimmed to avoid doubled
+     * path separators. Usage example: `$path->get('config', 'kernel.php')`.
      */
-    public function get(...$segments): string
+    public function get(string ...$segments): string
     {
-        $segments = array_map(
-            fn($segment) => trim($segment, DIRECTORY_SEPARATOR),
-            $segments
+        $sanitised = array_filter(
+            array_map(static fn(string $segment): string => trim($segment, DIRECTORY_SEPARATOR), $segments),
+            static fn(string $segment): bool => $segment !== ''
         );
-        $segments = array_filter($segments, fn($segment) => trim($segment) !== '');
-        return sprintf(
-            '%s%s%s',
-            $this->base,
-            DIRECTORY_SEPARATOR,
-            implode(
-                DIRECTORY_SEPARATOR,
-                $segments
-            )
-        );
+
+        if ($sanitised === []) {
+            return $this->base;
+        }
+
+        return $this->base . DIRECTORY_SEPARATOR . implode(DIRECTORY_SEPARATOR, $sanitised);
     }
 }

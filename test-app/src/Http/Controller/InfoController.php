@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controller;
 
-use App\Http\Routing\Attribute\Route;
+use Framework\Http\Routing\Attribute\Route;
 use App\Service\TemplateRenderer;
 use Framework\Http\Message\HtmlResponse;
 use Psr\Http\Message\ResponseInterface;

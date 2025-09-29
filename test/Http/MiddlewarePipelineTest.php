@@ -6,6 +6,8 @@ namespace Test\Http;
 
 use DI\ContainerBuilder;
 use Framework\Http\Message\ServerRequest;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\RequestHandlerInterface;
 use Framework\Http\Middleware\CallableRequestHandler;
 use Framework\Http\Middleware\MiddlewarePipeline;
 use Framework\Http\ResponseFactory;
@@ -18,21 +20,21 @@ class MiddlewarePipelineTest extends TestCase
         $container = (new ContainerBuilder())->build();
         $log = [];
 
-        $middlewareOne = function ($request, $handler) use (&$log) {
+        $middlewareOne = function (ServerRequestInterface $request, RequestHandlerInterface $handler) use (&$log) {
             $log[] = 'middleware-one-before';
             $response = $handler->handle($request->withAttribute('one', true));
             $log[] = 'middleware-one-after';
             return $response->withHeader('X-One', 'handled');
         };
 
-        $middlewareTwo = function ($request, $handler) use (&$log) {
+        $middlewareTwo = function (ServerRequestInterface $request, RequestHandlerInterface $handler) use (&$log) {
             $log[] = 'middleware-two-before';
             $response = $handler->handle($request->withAttribute('two', true));
             $log[] = 'middleware-two-after';
             return $response->withHeader('X-Two', 'handled');
         };
 
-        $finalHandler = new CallableRequestHandler(function ($request, array $attributes) use (&$log) {
+        $finalHandler = new CallableRequestHandler(function (ServerRequestInterface $request, array $attributes) use (&$log) {
             $log[] = 'handler';
             return ResponseFactory::from([
                 'attributes' => array_keys($request->getAttributes()),
@@ -59,6 +61,7 @@ class MiddlewarePipelineTest extends TestCase
 
         $body = $response->getBody();
         $body->rewind();
+        /** @var array{attributes: array<int, string>, received: array<int, string>} $payload */
         $payload = json_decode($body->getContents(), true, 512, JSON_THROW_ON_ERROR);
         self::assertContains('one', $payload['attributes']);
         self::assertContains('two', $payload['attributes']);

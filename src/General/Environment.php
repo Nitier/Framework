@@ -4,10 +4,26 @@ declare(strict_types=1);
 
 namespace Framework\General;
 
+/**
+ * Service responsible for loading environment variables into the container.
+ *
+ * Besides parsing `.env` files, the service mirrors process environment values
+ * (`getenv()`) so that the entire runtime configuration can be accessed through
+ * the kernel. This avoids scattering direct superglobal access across the
+ * framework and makes the environment state easier to inspect in debug mode.
+ */
 class Environment extends Entity
 {
-    public const string ENVIRONMENT = 'kernel.environment';
     /**
+     * Container key used to store the full environment snapshot in debug mode.
+     */
+    public const string ENVIRONMENT = 'kernel.environment';
+
+    /**
+     * Load environment variables from one or multiple files.
+     *
+     * Later files override earlier ones. Missing or unreadable files are
+     * skipped, allowing optional configuration overrides (e.g. `.env.local`).
      * @param string|array<string>|null $filePaths
      */
     public function load(null|string|array $filePaths = null): void
@@ -52,9 +68,11 @@ class Environment extends Entity
         }
     }
     /**
+     * Retrieve a single environment value from the container.
      * @param string $key
      * @param mixed $default
      * @return mixed
+
      */
     public function get(string $key, mixed $default = null): mixed
     {
@@ -66,8 +84,9 @@ class Environment extends Entity
     }
 
     /**
-     * @param string $key
-     * @param mixed $value
+     * Persist an environment entry in the container, serialising complex values
+     * when required. In debug mode the value is also recorded in a dedicated
+     * snapshot for diagnostic purposes.
      */
     public function set(string $key, mixed $value): void
     {
@@ -91,6 +110,9 @@ class Environment extends Entity
     }
 
     /**
+     * Return every environment entry that was explicitly stored through
+     * {@see set()} (only populated in debug mode).
+     *
      * @return array<mixed>
      */
     public function all(): array
@@ -107,8 +129,7 @@ class Environment extends Entity
     }
 
     /**
-     * @param string|null $value
-     * @return string|null
+     * Strip surrounding single/double quotes and whitespace from a raw value.
      */
     private function cleanValue(?string $value): ?string
     {
@@ -129,8 +150,7 @@ class Environment extends Entity
     }
 
     /**
-     * @param mixed $value
-     * @return mixed
+     * Convert a raw string into the most appropriate PHP type.
      */
     private function castValue(mixed $value): mixed
     {
@@ -166,8 +186,7 @@ class Environment extends Entity
     }
 
     /**
-     * @param string $value
-     * @return mixed
+     * Attempt JSON decoding while silencing conversion errors.
      */
     private function jsonParse(string $value): mixed
     {
@@ -179,8 +198,7 @@ class Environment extends Entity
     }
 
     /**
-     * @param string $value
-     * @return bool
+     * Heuristic check to determine whether a string contains serialised data.
      */
     private function isSerialized(string $value): bool
     {

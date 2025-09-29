@@ -37,6 +37,7 @@ class KernelHandleTest extends TestCase
 
         $body = $response->getBody();
         $body->rewind();
+        /** @var array<string, mixed> $data */
         $data = json_decode($body->getContents(), true, 512, JSON_THROW_ON_ERROR);
 
         self::assertSame('Hello, Jane!', $data['message']);
@@ -73,9 +74,13 @@ class KernelHandleTest extends TestCase
         ob_start();
         $response = $this->kernel->handle($request);
         $output = ob_get_clean();
+        if ($output === false) {
+            $output = '';
+        }
 
         self::assertSame(200, $response->getStatusCode());
         self::assertNotEmpty($output);
+        /** @var array<string, mixed> $data */
         $data = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('Hello, Jane!', $data['message']);
     }

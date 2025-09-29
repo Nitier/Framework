@@ -10,12 +10,21 @@ class RouteResult
     /** @var array<int, string> */
     private array $allowedMethods;
 
+    /**
+     * @param ?RouteMatch $match
+     * @param array<int,string> $allowedMethods
+     */
     private function __construct(?RouteMatch $match, array $allowedMethods = [])
     {
         $this->match = $match;
         $this->allowedMethods = $allowedMethods;
     }
 
+    /**
+     * @param \Framework\Http\Routing\Route $route
+     * @param array<string, string> $parameters
+     * @return RouteResult
+     */
     public static function matched(Route $route, array $parameters): self
     {
         return new self(new RouteMatch($route, $parameters));

@@ -1,18 +1,82 @@
-# Framework Overview
+# Обзор фреймворка
 
-This framework bootstraps an HTTP kernel backed by a PSR-compliant stack:
+Фреймворк предоставляет минималистичный каркас поверх PHP 8.4 с акцентом на PSR-совместимость и простую конфигурацию. Главные принципы:
 
-- **PSR-7**: `Framework\Http\Message` содержит лёгкие реализации `ServerRequestInterface`, `ResponseInterface`, `StreamInterface`, `UploadedFileInterface`, `UriInterface`, а также готовые ответы (`JsonResponse`, `HtmlResponse`, `EmptyResponse`).
-- **PSR-15**: Middleware and request handlers implement the `psr/http-server-middleware` and `psr/http-server-handler` standards via the `MiddlewarePipeline` and `CallableRequestHandler` helpers.
-- **Dependency Injection**: All services are assembled through PHP-DI. Kernel-level configuration lives in `config/`, while application-specific overrides extend the container from `test-app/config/`.
-- **Routing**: The `Router` class provides expressive route declaration, grouping, and middleware attachment, producing `RouteResult` instances consumed by the kernel.
+- **PSR-7** для представления HTTP-запросов и ответов (классы в `Framework\Http\Message`).
+- **PSR-15** для middleware и обработчиков (`Framework\Http\Middleware`).
+- **PHP-DI** как контейнер внедрения зависимостей.
+- Простая файловая конфигурация (`config/` и `test-app/config/`).
+- Маршрутизация с поддержкой групп, middleware и атрибутов.
+- Готовые вспомогательные классы для JSON-, HTML- и пустых ответов.
 
-The execution flow for a web request is:
+## Структура проекта
 
-1. `Kernel::handle()` receives a PSR-7 server request.
-2. The router resolves a matching route (or reports a 404 / 405 failure).
-3. Route and global middleware are assembled into a PSR-15 pipeline.
-4. The resolved request handler (controller) executes and returns a PSR-7 response.
-5. `Kernel::handle()` emits the response via the configured `ResponseEmitter`.
+```
+project/
+├── config/              # Базовые определения контейнера
+├── docs/                # Markdown-документация (отображается на /docs)
+├── public/              # Точка входа веб-приложения
+├── src/                 # Код фреймворка
+├── test-app/            # Пример приложения/скелет
+├── test/                # Тесты PHPUnit
+└── vendor/              # Composer-зависимости
+```
 
-See the remaining documents in this directory for focused guidance on routing, middleware, and kernel configuration.
+Основное приложение размещено в `test-app/`. Именно эту директорию передаём в `Kernel::loadApplication()`, чтобы фреймворк подхватил конфигурацию конечного проекта.
+
+## Жизненный цикл HTTP-запроса
+
+1. **Bootstrap.** В `public/index.php` создаётся `Kernel`, загружается конфигурация приложения, после чего вызывается `Kernel::handle()`.
+2. **Создание запроса.** Если явный `ServerRequestInterface` не передан, ядро строит его с помощью `ServerRequest::fromGlobals()`.
+3. **Маршрутизация.** `Router::match()` возвращает `RouteResult`: успех, 404 или 405. Глобальные и маршрутные middleware подготавливаются заранее.
+4. **Middleware-пайплайн.** `MiddlewarePipeline` соединяет глобальные и маршрутные middleware и в конце вызывает обработчик маршрута.
+5. **Ответ.** Обработчик возвращает `ResponseInterface`; при необходимости используется `ResponseFactory` или специализированные `*Response`. `Kernel::handle()` эмитирует ответ через `ResponseEmitter` и возвращает его вызывающему коду.
+
+## Конфигурация и DI
+
+- **Глобальная конфигурация.** Файлы в `config/` загружаются прежде всего (см. `Kernel::loadDefinitions()`).
+- **Конфигурация приложения.** Файлы в `test-app/config/` дополняют и переопределяют базовые определения.
+- **ContainerBuilder.** Через PHP-DI можно объявлять сервисы, параметрами служат списки, колбэки и свойства `value()`.
+- **Внедрение зависимостей.** Все классы фреймворка и приложения автоматически получают зависимости через конструктор.
+
+## Основные сценарии
+
+### Быстрый старт
+
+1. Скопируйте `test-app/` как шаблон или создайте новый каталог.
+2. Добавьте свои сервисы и маршруты в `test-app/config/`.
+3. Запустите встроенный PHP-сервер: `php -S 127.0.0.1:8000 public/index.php`.
+4. Откройте `/docs` — встроенный просмотрщик документации.
+
+### Настройка middleware и маршрутов
+
+- Глобальные middleware: `Router::GLOBAL_MIDDLEWARE` в конфигурации.
+- Маршруты: через `Router::ROUTE_BUILDERS` (см. `docs/routing.md`).
+- Атрибуты: `Framework\Http\Routing\Attribute\Route` позволяют описывать маршруты прямо в контроллерах.
+
+### Обработка ответов
+
+Используйте специализированные ответы:
+
+- `JsonResponse` — JSON + правильные заголовки.
+- `HtmlResponse` — HTML c `text/html; charset=utf-8`.
+- `EmptyResponse` — статусы без тела (204 и т.д.).
+- `ResponseFactory::from()` автоматически определит тип по содержимому.
+
+## Тестирование и качество
+
+- **PHPUnit:** `composer test`
+- **Code Style:** `composer cs`
+- **Static Analysis:** `composer stan`
+
+Используйте эти команды до публикации изменений. Подробнее см. `docs/testing.md`.
+
+## Полезные ссылки документации
+
+- [Ядро и жизненный цикл](kernel.md)
+- [Маршрутизация и атрибуты](routing.md)
+- [Middleware и пайплайн](middleware.md)
+- [Ответы и работа с телом](responses.md)
+- [HTTP-запрос и данные](request.md)
+- [Темплейты и Markdown-документация](templates.md)
+- [Процесс тестирования](testing.md)

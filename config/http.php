@@ -4,6 +4,7 @@ use DI\Container;
 use Framework\Http\Message\ServerRequest;
 use Framework\Http\ResponseEmitter;
 use Framework\Http\ResponseFactory;
+use Framework\Http\Routing\Attribute\RouteAttributeRegistrar;
 use Framework\Http\Routing\HandlerResolver;
 use Framework\Http\Routing\Route;
 use Framework\Http\Routing\Router;
@@ -12,6 +13,14 @@ use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use function DI\value;
 
+/**
+ * Dependency injection wiring for the HTTP layer of the framework.
+ *
+ * This configuration defines how PSR-7 requests, the router and error
+ * handling pipeline are constructed. Applications can extend the returned array
+ * to register additional middleware, route builders or attribute-based
+ * controllers.
+ */
 return [
     ServerRequestInterface::class => static function (): ServerRequestInterface {
         return ServerRequest::fromGlobals();
@@ -23,6 +32,7 @@ return [
         return new HandlerResolver($container);
     },
     Router::GLOBAL_MIDDLEWARE => value([]),
+    Router::ATTRIBUTE_CONTROLLERS => value([]),
     Router::ROUTE_BUILDERS => value([]),
     Router::class => static function (ContainerInterface $container): Router {
         $globalMiddleware = [];
@@ -62,6 +72,13 @@ return [
                 } else {
                     $definition($router);
                 }
+            }
+        }
+
+        if ($container->has(Router::ATTRIBUTE_CONTROLLERS)) {
+            $controllers = $container->get(Router::ATTRIBUTE_CONTROLLERS);
+            if (is_array($controllers) && $controllers !== []) {
+                (new RouteAttributeRegistrar($router))->registerControllers($controllers);
             }
         }
 

@@ -14,6 +14,7 @@ class Stream implements StreamInterface
     private bool $seekable;
     private bool $readable;
     private bool $writable;
+    /** @var array<string, mixed>|null */
     private ?array $metadata;
 
     /**
@@ -37,7 +38,7 @@ class Stream implements StreamInterface
             throw new RuntimeException('Stream body must be a string or resource.');
         }
 
-        $this->metadata = stream_get_meta_data($this->resource) ?: null;
+        $this->metadata = stream_get_meta_data($this->resource);
         $mode = $this->metadata['mode'] ?? '';
         $this->seekable = (bool) ($this->metadata['seekable'] ?? false);
         $this->readable = strpbrk($mode, 'r+') !== false;
@@ -56,7 +57,13 @@ class Stream implements StreamInterface
             return '';
         }
 
-        return stream_get_contents($this->resource) ?: '';
+        $stream = $this->requireResource();
+        $contents = stream_get_contents($stream);
+        if ($contents === false) {
+            return '';
+        }
+
+        return $contents;
     }
 
     public function close(): void
@@ -85,17 +92,20 @@ class Stream implements StreamInterface
             return null;
         }
 
-        $stats = fstat($this->resource);
-        return $stats !== false ? ($stats['size'] ?? null) : null;
+        $stream = $this->requireResource();
+        $stats = fstat($stream);
+        if ($stats === false) {
+            return null;
+        }
+
+        return (int) $stats[7];
     }
 
     public function tell(): int
     {
-        if ($this->resource === null) {
-            throw new RuntimeException('No stream available');
-        }
+        $stream = $this->requireResource();
 
-        $position = ftell($this->resource);
+        $position = ftell($stream);
         if ($position === false) {
             throw new RuntimeException('Unable to determine stream position');
         }
@@ -109,7 +119,7 @@ class Stream implements StreamInterface
             return true;
         }
 
-        return feof($this->resource);
+        return feof($this->requireResource());
     }
 
     public function isSeekable(): bool
@@ -156,9 +166,12 @@ class Stream implements StreamInterface
     {
         return $this->readable;
     }
-
     public function read(int $length): string
     {
+        if ($length < 1) {
+            throw new RuntimeException('Length parameter must be greater than zero.');
+        }
+
         if (!$this->readable || $this->resource === null) {
             throw new RuntimeException('Stream is not readable.');
         }
@@ -173,11 +186,7 @@ class Stream implements StreamInterface
 
     public function getContents(): string
     {
-        if ($this->resource === null) {
-            throw new RuntimeException('No stream available');
-        }
-
-        $contents = stream_get_contents($this->resource);
+        $contents = stream_get_contents($this->requireResource());
         if ($contents === false) {
             throw new RuntimeException('Unable to read stream contents');
         }
@@ -195,7 +204,19 @@ class Stream implements StreamInterface
             return stream_get_meta_data($this->resource);
         }
 
-        $meta = stream_get_meta_data($this->resource);
+        $meta = stream_get_meta_data($this->requireResource());
         return $meta[$key] ?? null;
+    }
+
+    /**
+     * @return resource
+     */
+    private function requireResource()
+    {
+        if (!is_resource($this->resource)) {
+            throw new RuntimeException('No stream available');
+        }
+
+        return $this->resource;
     }
 }

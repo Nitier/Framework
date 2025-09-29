@@ -26,6 +26,9 @@ class Kernel
     /** @var array<mixed> */
     private array $settings = [];
 
+    public const ERROR_HANDLER_NOT_FOUND = 'kernel.http.error.not_found';
+    public const ERROR_HANDLER_METHOD_NOT_ALLOWED = 'kernel.http.error.method_not_allowed';
+    public const ERROR_HANDLER_EXCEPTION = 'kernel.http.error.exception';
     /**
      * Kernel constructor.
      * Initializes the kernel by setting up paths and building the container.
@@ -132,24 +135,26 @@ class Kernel
         return $this->container->has($key);
     }
 
-    public const ERROR_HANDLER_NOT_FOUND = 'kernel.http.error.not_found';
-    public const ERROR_HANDLER_METHOD_NOT_ALLOWED = 'kernel.http.error.method_not_allowed';
-    public const ERROR_HANDLER_EXCEPTION = 'kernel.http.error.exception';
-
     public function handle(?ServerRequestInterface $request = null, bool $emit = true): ResponseInterface
     {
         if (!isset($this->container)) {
             $this->buildContainer($this->settings);
         }
 
-        /** @var Router $router */
+        /** @var Router|null $router */
         $router = $this->get(Router::class);
-        if ($router === null) {
+        if (!$router instanceof Router) {
             throw new \RuntimeException('Router service is not configured.');
         }
 
-        $request ??= $this->get(ServerRequestInterface::class);
         if ($request === null) {
+            $resolved = $this->get(ServerRequestInterface::class);
+            if ($resolved instanceof ServerRequestInterface) {
+                $request = $resolved;
+            }
+        }
+
+        if (!$request instanceof ServerRequestInterface) {
             $request = ServerRequest::fromGlobals();
         }
 

@@ -57,14 +57,15 @@ class ServerRequest extends Message implements ServerRequestInterface
 
     public static function fromGlobals(): self
     {
-        /** @var array<string,mixed> $server */
+        /** @var array<string, mixed> $server */
         $server = $_SERVER;
-        $method = $server['REQUEST_METHOD'] ?? 'GET';
+        $methodValue = $server['REQUEST_METHOD'] ?? null;
+        $method = is_string($methodValue) && $methodValue !== '' ? $methodValue : 'GET';
         $scheme = (!empty($server['HTTPS']) && $server['HTTPS'] !== 'off') ? 'https' : 'http';
-        /** @var string $host */
-        $host = $server['HTTP_HOST'] ?? ($server['SERVER_NAME'] ?? 'localhost');
-        /** @var string $requestUri */
-        $requestUri = $server['REQUEST_URI'] ?? '/';
+        $hostValue = $server['HTTP_HOST'] ?? ($server['SERVER_NAME'] ?? null);
+        $host = is_string($hostValue) && $hostValue !== '' ? $hostValue : 'localhost';
+        $requestUriValue = $server['REQUEST_URI'] ?? null;
+        $requestUri = is_string($requestUriValue) ? $requestUriValue : '/';
         $uri = sprintf('%s://%s%s', $scheme, $host, $requestUri);
 
         $body = file_get_contents('php://input');
@@ -75,31 +76,41 @@ class ServerRequest extends Message implements ServerRequestInterface
         $contentType = $headers['Content-Type'][0] ?? '';
         if (str_contains(strtolower($contentType), 'application/json') && $body !== '') {
             $parsed = json_decode($body, true);
-            if (json_last_error() === JSON_ERROR_NONE) {
+            if (json_last_error() === JSON_ERROR_NONE && is_array($parsed)) {
+                /** @var array<string, mixed> $parsed */
                 $parsedBody = $parsed;
             }
         } else {
-            $parsedBody = $_POST;
+            /** @var array<string, mixed> $post */
+            $post = $_POST;
+            $parsedBody = $post;
         }
 
-        $uploadedFiles = self::normalizeFiles($_FILES);
+        $files = self::filterStringKeyArray($_FILES);
+        $uploadedFiles = self::normalizeFiles($files);
         $protocol = $server['SERVER_PROTOCOL'] ?? '1.1';
         if (is_string($protocol) && str_starts_with($protocol, 'HTTP/')) {
             $protocol = substr($protocol, 5);
         }
+        $protocol = is_string($protocol) && $protocol !== '' ? $protocol : '1.1';
 
         $request = new self(
             $method,
             $uri,
             $headers,
             $body,
-            (string) $protocol,
+            $protocol,
             $server
         );
 
+        $cookies = self::filterStringKeyArray($_COOKIE);
+        $query = self::filterStringKeyArray($_GET);
+
+        $parsedBody = self::sanitizeParsedBody($parsedBody);
+
         return $request
-            ->withCookieParams($_COOKIE ?? [])
-            ->withQueryParams($_GET ?? [])
+            ->withCookieParams($cookies)
+            ->withQueryParams($query)
             ->withParsedBody($parsedBody)
             ->withUploadedFiles($uploadedFiles);
     }
@@ -114,15 +125,15 @@ class ServerRequest extends Message implements ServerRequestInterface
         foreach ($server as $key => $value) {
             if (str_starts_with($key, 'HTTP_')) {
                 $name = str_replace(' ', '-', ucwords(strtolower(str_replace('_', ' ', substr($key, 5)))));
-                $headers[$name] = [(string) $value];
+                $headers[$name] = [self::stringifyServerValue($value)];
             }
         }
 
         if (isset($server['CONTENT_TYPE'])) {
-            $headers['Content-Type'] = [(string) $server['CONTENT_TYPE']];
+            $headers['Content-Type'] = [self::stringifyServerValue($server['CONTENT_TYPE'])];
         }
         if (isset($server['CONTENT_LENGTH'])) {
-            $headers['Content-Length'] = [(string) $server['CONTENT_LENGTH']];
+            $headers['Content-Length'] = [self::stringifyServerValue($server['CONTENT_LENGTH'])];
         }
 
         return $headers;
@@ -147,9 +158,9 @@ class ServerRequest extends Message implements ServerRequestInterface
         return $target;
     }
 
-    public function withRequestTarget($requestTarget): static
+    public function withRequestTarget(string $requestTarget): static
     {
-        if (!is_string($requestTarget) || $requestTarget === '') {
+        if ($requestTarget === '') {
             throw new InvalidArgumentException('Request target must be a non-empty string');
         }
 
@@ -163,8 +174,12 @@ class ServerRequest extends Message implements ServerRequestInterface
         return $this->method;
     }
 
-    public function withMethod($method): static
+    public function withMethod(string $method): static
     {
+        if ($method === '') {
+            throw new InvalidArgumentException('HTTP method cannot be empty');
+        }
+
         $clone = clone $this;
         $clone->method = strtoupper($method);
         return $clone;
@@ -175,7 +190,7 @@ class ServerRequest extends Message implements ServerRequestInterface
         return $this->uri;
     }
 
-    public function withUri(UriInterface $uri, $preserveHost = false): static
+    public function withUri(UriInterface $uri, bool $preserveHost = false): static
     {
         $clone = clone $this;
         $clone->uri = $uri;
@@ -203,6 +218,12 @@ class ServerRequest extends Message implements ServerRequestInterface
         return $this->cookieParams;
     }
 
+    /**
+     * @param array<string, mixed> $cookies
+     */
+    /**
+     * @param array<string, mixed> $cookies
+     */
     public function withCookieParams(array $cookies): static
     {
         $clone = clone $this;
@@ -218,6 +239,12 @@ class ServerRequest extends Message implements ServerRequestInterface
         return $this->queryParams;
     }
 
+    /**
+     * @param array<string, mixed> $query
+     */
+    /**
+     * @param array<string, mixed> $query
+     */
     public function withQueryParams(array $query): static
     {
         $clone = clone $this;
@@ -233,25 +260,35 @@ class ServerRequest extends Message implements ServerRequestInterface
         return $this->uploadedFiles;
     }
 
+    /**
+     * @param array<string, UploadedFileInterface> $uploadedFiles
+     */
+    /**
+     * @param array<string, UploadedFileInterface> $uploadedFiles
+     */
     public function withUploadedFiles(array $uploadedFiles): static
     {
-        $this->validateUploadedFiles($uploadedFiles);
         $clone = clone $this;
         $clone->uploadedFiles = $uploadedFiles;
         return $clone;
     }
 
+    /**
+     * @return array<string, mixed>|object|null
+     */
     public function getParsedBody(): array|object|null
     {
         return $this->parsedBody;
     }
 
+    /**
+     * @param array<string, mixed>|object|null $data
+     */
+    /**
+     * @param array<string, mixed>|object|null $data
+     */
     public function withParsedBody($data): static
     {
-        if ($data !== null && !is_array($data) && !is_object($data)) {
-            throw new InvalidArgumentException('Parsed body must be an array, object, or null');
-        }
-
         $clone = clone $this;
         $clone->parsedBody = $data;
         return $clone;
@@ -302,22 +339,67 @@ class ServerRequest extends Message implements ServerRequestInterface
             }
 
             if (is_array($value) && isset($value['tmp_name'])) {
-                $normalized[$key] = UploadedFile::createFromSpec($value);
+                /** @var array<string, mixed> $spec */
+                $spec = $value;
+                $normalized[$key] = UploadedFile::createFromSpec($spec);
                 continue;
             }
         }
         return $normalized;
     }
 
-    /**
-     * @param array<string, mixed> $uploadedFiles
-     */
-    private function validateUploadedFiles(array $uploadedFiles): void
+    private static function stringifyServerValue(mixed $value): string
     {
-        foreach ($uploadedFiles as $file) {
-            if (!$file instanceof UploadedFileInterface) {
-                throw new InvalidArgumentException('Uploaded files must implement UploadedFileInterface');
+        if (is_array($value) || is_object($value)) {
+            return '';
+        }
+
+        if ($value === null) {
+            return '';
+        }
+
+        if (is_resource($value)) {
+            return '';
+        }
+
+        if (is_scalar($value)) {
+            return (string) $value;
+        }
+
+        return '';
+    }
+
+    /**
+     * @param mixed $parsedBody
+     * @return array<string, mixed>|object|null
+     */
+    private static function sanitizeParsedBody(mixed $parsedBody): array|object|null
+    {
+        if ($parsedBody === null || is_object($parsedBody)) {
+            return $parsedBody;
+        }
+
+        if (!is_array($parsedBody)) {
+            return null;
+        }
+
+        /** @var array<string, mixed> $parsedBody */
+        return $parsedBody;
+    }
+
+    /**
+     * @param array<int|string, mixed> $values
+     * @return array<string, mixed>
+     */
+    private static function filterStringKeyArray(array $values): array
+    {
+        $result = [];
+        foreach ($values as $key => $value) {
+            if (is_string($key)) {
+                $result[$key] = $value;
             }
         }
+
+        return $result;
     }
 }

@@ -4,32 +4,41 @@ declare(strict_types=1);
 
 namespace Framework\Http\Routing;
 
+use InvalidArgumentException;
 use Psr\Http\Message\ServerRequestInterface;
 
 class Router
 {
     public const ROUTE_BUILDERS = 'kernel.http.routes';
     public const GLOBAL_MIDDLEWARE = 'kernel.http.middleware';
+    public const ATTRIBUTE_CONTROLLERS = 'kernel.http.attribute.controllers';
 
     /** @var array<int, Route> */
     private array $routes = [];
-    /** @var array<int, array{prefix: string, middleware: array<int, callable|string|array{0: mixed, 1?: string}>}> */
+    /**
+     * @var array<int, array{
+     *     prefix: string,
+     *     middleware: array<int, callable|string|array{0: class-string|object, 1?: string}>
+     * }>
+     */
     private array $groupStack = [];
-    /** @var array<int, callable|string|array{0: mixed, 1?: string}> */
+    /** @var array<int, callable|string|array{0: class-string|object, 1?: string}> */
     private array $globalMiddleware;
 
     /**
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $globalMiddleware
+     * @param array<int, callable|string|array{0: class-string|object, 1?: string}> $globalMiddleware
      */
     public function __construct(array $globalMiddleware = [])
     {
-        $this->globalMiddleware = array_values($globalMiddleware);
+        $this->globalMiddleware = array_is_list($globalMiddleware)
+            ? $globalMiddleware
+            : array_values($globalMiddleware);
     }
 
     /**
-     * @param array<int, string>|string $methods
-     * @param callable|string|array{0: mixed, 1?: string} $handler
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $middleware
+     * @param list<string>|string $methods
+     * @param callable|string|array{0: class-string|object, 1?: string} $handler
+     * @param list<callable|string|array{0: class-string|object, 1?: string}> $middleware
      */
     public function add(
         array|string $methods,
@@ -49,8 +58,8 @@ class Router
     }
 
     /**
-     * @param callable|string|array{0: mixed, 1?: string} $handler
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $middleware
+     * @param callable|string|array{0: class-string|object, 1?: string} $handler
+     * @param list<callable|string|array{0: class-string|object, 1?: string}> $middleware
      */
     public function get(string $path, callable|string|array $handler, array $middleware = []): Route
     {
@@ -58,8 +67,8 @@ class Router
     }
 
     /**
-     * @param callable|string|array{0: mixed, 1?: string} $handler
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $middleware
+     * @param callable|string|array{0: class-string|object, 1?: string} $handler
+     * @param list<callable|string|array{0: class-string|object, 1?: string}> $middleware
      */
     public function post(string $path, callable|string|array $handler, array $middleware = []): Route
     {
@@ -67,8 +76,8 @@ class Router
     }
 
     /**
-     * @param callable|string|array{0: mixed, 1?: string} $handler
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $middleware
+     * @param callable|string|array{0: class-string|object, 1?: string} $handler
+     * @param list<callable|string|array{0: class-string|object, 1?: string}> $middleware
      */
     public function put(string $path, callable|string|array $handler, array $middleware = []): Route
     {
@@ -76,8 +85,8 @@ class Router
     }
 
     /**
-     * @param callable|string|array{0: mixed, 1?: string} $handler
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $middleware
+     * @param callable|string|array{0: class-string|object, 1?: string} $handler
+     * @param list<callable|string|array{0: class-string|object, 1?: string}> $middleware
      */
     public function patch(string $path, callable|string|array $handler, array $middleware = []): Route
     {
@@ -85,8 +94,8 @@ class Router
     }
 
     /**
-     * @param callable|string|array{0: mixed, 1?: string} $handler
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $middleware
+     * @param callable|string|array{0: class-string|object, 1?: string} $handler
+     * @param list<callable|string|array{0: class-string|object, 1?: string}> $middleware
      */
     public function delete(string $path, callable|string|array $handler, array $middleware = []): Route
     {
@@ -94,8 +103,8 @@ class Router
     }
 
     /**
-     * @param callable|string|array{0: mixed, 1?: string} $handler
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $middleware
+     * @param callable|string|array{0: class-string|object, 1?: string} $handler
+     * @param list<callable|string|array{0: class-string|object, 1?: string}> $middleware
      */
     public function options(string $path, callable|string|array $handler, array $middleware = []): Route
     {
@@ -103,7 +112,8 @@ class Router
     }
 
     /**
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $middleware
+     * @param callable|string|array{0: class-string|object, 1?: string} $handler
+     * @param list<callable|string|array{0: class-string|object, 1?: string}> $middleware
      */
     public function any(string $path, callable|string|array $handler, array $middleware = []): Route
     {
@@ -123,9 +133,33 @@ class Router
         $middleware = $attributes['middleware'] ?? [];
         $middleware = is_array($middleware) && array_is_list($middleware) ? $middleware : [$middleware];
 
+        /** @var list<callable|string|array{0: class-string|object, 1?: string}> $sanitized */
+        $sanitized = [];
+        foreach ($middleware as $item) {
+            if ($item === null) {
+                continue;
+            }
+
+            if (!is_string($item) && !is_callable($item) && !is_array($item)) {
+                throw new InvalidArgumentException('Middleware group definition must be callable, array, or string.');
+            }
+
+            if (is_array($item)) {
+                if (!array_key_exists(0, $item)) {
+                    throw new InvalidArgumentException('Array middleware definition must have a callable at index 0.');
+                }
+
+                /** @var array{0: class-string|object, 1?: string} $item */
+                $sanitized[] = $item;
+                continue;
+            }
+
+            $sanitized[] = $item;
+        }
+
         $this->groupStack[] = [
             'prefix' => $prefix === '' ? '' : '/' . trim((string) $prefix, '/'),
-            'middleware' => array_values(array_filter($middleware, static fn($item) => $item !== null)),
+            'middleware' => $sanitized,
         ];
 
         $callback($this);
@@ -168,19 +202,23 @@ class Router
     }
 
     /**
-     * @return array<int, callable|string|array{0: mixed, 1?: string}>
+     * @return list<callable|string|array{0: class-string|object, 1?: string}>
      */
     public function getGlobalMiddleware(): array
     {
-        return $this->globalMiddleware;
+        return array_values($this->globalMiddleware);
     }
 
     /**
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $middleware
+     * @param array<int, callable|string|array{0: class-string|object, 1?: string}> $middleware
      */
     public function setGlobalMiddleware(array $middleware): void
     {
-        $this->globalMiddleware = array_values($middleware);
+        if (!array_is_list($middleware)) {
+            $middleware = array_values($middleware);
+        }
+
+        $this->globalMiddleware = $middleware;
     }
 
     private function applyGroupPrefix(string $path): string
@@ -190,20 +228,18 @@ class Router
             $prefix .= rtrim($group['prefix'], '/');
         }
 
-        $full = $prefix . '/' . ltrim($path, '/');
-        if ($full === '' || $full === '/') {
-            return '/';
-        }
+        $combined = trim($prefix . '/' . ltrim($path, '/'), '/');
 
-        return '/' . trim($full, '/');
+        return $combined === '' ? '/' : '/' . $combined;
     }
 
     /**
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $routeMiddleware
-     * @return array<int, callable|string|array{0: mixed, 1?: string}>
+     * @param list<callable|string|array{0: class-string|object, 1?: string}> $routeMiddleware
+     * @return list<callable|string|array{0: class-string|object, 1?: string}>
      */
     private function mergeGroupMiddleware(array $routeMiddleware): array
     {
+        /** @var list<callable|string|array{0: class-string|object, 1?: string}> $merged */
         $merged = [];
         foreach ($this->groupStack as $group) {
             $merged = array_merge($merged, $group['middleware']);

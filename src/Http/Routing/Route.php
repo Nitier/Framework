@@ -11,9 +11,9 @@ class Route
     /** @var array<int, string> */
     private array $methods;
     private string $path;
-    /** @var callable|string|array{0: mixed, 1?: string} */
+    /** @var callable|string|array{0: class-string|object, 1?: string} */
     private $handler;
-    /** @var array<int, callable|string|array{0: mixed, 1?: string}> */
+    /** @var list<callable|string|array{0: class-string|object, 1?: string}> */
     private array $middleware;
     private string $pattern;
     /** @var array<int, string> */
@@ -22,8 +22,8 @@ class Route
 
     /**
      * @param array<int, string> $methods
-     * @param callable|string|array{0: mixed, 1?: string} $handler
-     * @param array<int, callable|string|array{0: mixed, 1?: string}> $middleware
+     * @param callable|string|array{0: class-string|object, 1?: string} $handler
+     * @param array<int, callable|string|array{0: class-string|object, 1?: string}> $middleware
      */
     public function __construct(array $methods, string $path, callable|string|array $handler, array $middleware = [])
     {
@@ -47,12 +47,18 @@ class Route
         return in_array($method, $this->methods, true);
     }
 
+    /**
+     * @param ServerRequestInterface $request
+     * @return array<string, string>|null
+     */
     public function match(ServerRequestInterface $request): ?array
     {
         $path = $request->getUri()->getPath() ?: '/';
         return $this->matchPath($path);
     }
-
+    /**
+     * @return array<string, string>|null
+     */
     public function matchPath(string $path): ?array
     {
         $path = $path === '' ? '/' : '/' . ltrim($path, '/');
@@ -62,6 +68,7 @@ class Route
             return null;
         }
 
+        /** @var array<string, string> $params */
         $params = [];
         foreach ($this->parameterNames as $name) {
             if (array_key_exists($name, $matches)) {
@@ -97,7 +104,7 @@ class Route
     }
 
     /**
-     * @return callable|string|array{0: mixed, 1?: string}
+     * @return callable|string|array{0: class-string|object, 1?: string}
      */
     public function getHandler(): callable|string|array
     {
@@ -105,7 +112,7 @@ class Route
     }
 
     /**
-     * @return array<int, callable|string|array{0: mixed, 1?: string}>
+     * @return array<int, callable|string|array{0: class-string|object, 1?: string}>
      */
     public function getMiddleware(): array
     {

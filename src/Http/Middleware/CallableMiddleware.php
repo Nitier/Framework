@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Framework\Http\Middleware;
 
+use Closure;
 use Framework\Http\ResponseFactory;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -37,22 +38,8 @@ class CallableMiddleware implements MiddlewareInterface
 
     private function resolveParameterCount(callable $callable): int
     {
-        if (is_array($callable)) {
-            [$classOrObject, $method] = $callable;
-            if (is_object($classOrObject)) {
-                $reflection = new \ReflectionMethod($classOrObject, (string) $method);
-            } else {
-                $reflection = new \ReflectionMethod((string) $classOrObject, (string) $method);
-            }
-            return $reflection->getNumberOfParameters();
-        }
-
-        if (is_object($callable) && method_exists($callable, '__invoke')) {
-            $reflection = new \ReflectionMethod($callable, '__invoke');
-            return $reflection->getNumberOfParameters();
-        }
-
-        $reflection = new \ReflectionFunction($callable);
+        $closure = Closure::fromCallable($callable);
+        $reflection = new \ReflectionFunction($closure);
         return $reflection->getNumberOfParameters();
     }
 }

@@ -18,13 +18,21 @@ class HomeController
         ]);
     }
 
+    /**
+     * @param array<string, mixed> $attributes
+     */
     public function greet(ServerRequestInterface $request, array $attributes = []): ResponseInterface
     {
-        $name = $request->getAttribute('name') ?? $attributes['name'] ?? 'Guest';
+        $rawName = $request->getAttribute('name');
+        if (!is_string($rawName) || $rawName === '') {
+            $fallback = $attributes['name'] ?? 'Guest';
+            $rawName = is_string($fallback) ? $fallback : 'Guest';
+        }
+        $name = ucfirst($rawName);
         $routeName = $request->getAttribute('routeName');
 
         return new JsonResponse([
-            'message' => sprintf('Hello, %s!', ucfirst((string) $name)),
+            'message' => sprintf('Hello, %s!', $name),
             'route' => $routeName,
             'requestId' => $request->getAttribute('requestId'),
         ]);

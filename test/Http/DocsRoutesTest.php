@@ -16,7 +16,7 @@ class DocsRoutesTest extends TestCase
     {
         parent::setUp();
         $this->kernel = new Kernel();
-        $appPath = dirname(__DIR__, 2) . '/test-app';
+        $appPath = dirname(__DIR__, 2) . '/examples/test-app';
         $this->kernel->loadApplication($appPath);
     }
 

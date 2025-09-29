@@ -24,7 +24,7 @@ class DocsController
     {
         $this->templates = $templates;
         $this->markdown = $markdown;
-        $this->docsDirectory = $path->get('..', 'docs');
+        $this->docsDirectory = $path->get('..', '..', 'docs');
         $this->documents = $this->discoverDocuments();
     }
 
@@ -51,6 +51,7 @@ class DocsController
     {
         $slugAttr = $request->getAttribute('slug');
         $slug = is_string($slugAttr) ? $slugAttr : '';
+        $slug = rtrim($slug,'.md');
         if ($slug === '' || !isset($this->documents[$slug])) {
             $html = $this->templates->render('docs/article', [
                 'title' => 'Документ не найден',

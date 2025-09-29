@@ -21,7 +21,7 @@ class KernelHandleTest extends TestCase
     {
         parent::setUp();
         $this->kernel = new Kernel();
-        $appPath = dirname(__DIR__, 2) . '/test-app';
+        $appPath = dirname(__DIR__, 2) . '/examples/test-app';
         $this->kernel->loadApplication($appPath);
         $this->kernel->set(Mode::DEBUG, false);
     }
@@ -51,9 +51,12 @@ class KernelHandleTest extends TestCase
         $response = $this->kernel->handle($request, false);
 
         self::assertSame(404, $response->getStatusCode());
+        self::assertSame('text/html; charset=utf-8', $response->getHeaderLine('Content-Type'));
         $body = $response->getBody();
         $body->rewind();
-        self::assertSame('Not Found', $body->getContents());
+        $markup = $body->getContents();
+        self::assertStringContainsString('Page Not Found', $markup);
+        self::assertStringContainsString('Return to homepage', $markup);
     }
 
     public function testHandleReturnsMethodNotAllowed(): void
@@ -132,7 +135,73 @@ class KernelHandleTest extends TestCase
         $body->rewind();
         $markup = $body->getContents();
 
-        self::assertStringContainsString('<h1>About this Mini Framework</h1>', $markup);
-        self::assertStringContainsString('test-app/template/about.php', $markup);
+        self::assertStringContainsString('class="ui-title"', $markup);
+        self::assertStringContainsString('About this Mini Framework', $markup);
+        self::assertStringContainsString('examples/test-app/template/about.php', $markup);
+    }
+
+    public function testDebuggerDecoratesHtmlResponsesInDebugMode(): void
+    {
+        $this->kernel->set(Mode::DEBUG, true);
+
+        $request = (new ServerRequest('GET', 'http://example.com/about'))
+            ->withHeader('Accept', 'text/html');
+
+        $response = $this->kernel->handle($request, false);
+
+        self::assertSame(200, $response->getStatusCode());
+        $body = $response->getBody();
+        $body->rewind();
+        $markup = $body->getContents();
+
+        self::assertStringContainsString('framework-debugger', $markup);
+        self::assertStringContainsString('Displayed because debug mode is enabled.', $markup);
+        self::assertStringContainsString('Processing Time', $markup);
+        self::assertStringContainsString('Performance', $markup);
+    }
+
+    public function testDebuggerCapturesExceptionsForHtmlRequests(): void
+    {
+        $this->kernel->set(Mode::DEBUG, true);
+
+        /** @var Router $router */
+        $router = $this->kernel->get(Router::class);
+        $router->get('/fail-debug', static function (): void {
+            throw new RuntimeException('boom');
+        })->name('fail.debug');
+
+        $request = (new ServerRequest('GET', 'http://example.com/fail-debug'))
+            ->withHeader('Accept', 'text/html');
+
+        $response = $this->kernel->handle($request, false);
+
+        self::assertSame(500, $response->getStatusCode());
+        $body = $response->getBody();
+        $body->rewind();
+        $markup = $body->getContents();
+
+        self::assertStringContainsString('framework-debugger', $markup);
+        self::assertStringContainsString('Unhandled Exception', $markup);
+        self::assertStringContainsString('boom', $markup);
+        self::assertStringContainsString('Debug', $markup);
+    }
+
+    public function testDebugModeRethrowsExceptionsForNonHtmlRequests(): void
+    {
+        $this->kernel->set(Mode::DEBUG, true);
+
+        /** @var Router $router */
+        $router = $this->kernel->get(Router::class);
+        $router->get('/fail-json', static function (): void {
+            throw new RuntimeException('json boom');
+        });
+
+        $request = (new ServerRequest('GET', 'http://example.com/fail-json'))
+            ->withHeader('Accept', 'application/json');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('json boom');
+
+        $this->kernel->handle($request, false);
     }
 }

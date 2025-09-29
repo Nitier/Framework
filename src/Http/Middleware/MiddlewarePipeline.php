@@ -15,13 +15,13 @@ use RuntimeException;
 
 class MiddlewarePipeline implements RequestHandlerInterface
 {
-    /** @var array<int, callable|string|array{0: class-string|object, 1?: string}> */
+    /** @var array<int, MiddlewareInterface|callable|string|array{0: class-string|object, 1?: string}> */
     private array $middlewares;
     private Container $container;
     private RequestHandlerInterface $finalHandler;
 
     /**
-     * @param array<int, callable|string|array{0: class-string|object, 1?: string}> $middlewares
+     * @param array<int, MiddlewareInterface|callable|string|array{0: class-string|object, 1?: string}> $middlewares
      */
     public function __construct(Container $container, array $middlewares, RequestHandlerInterface $finalHandler)
     {
@@ -34,6 +34,7 @@ class MiddlewarePipeline implements RequestHandlerInterface
     {
         $handler = $this->finalHandler;
         foreach (array_reverse($this->middlewares) as $definition) {
+            /** @var MiddlewareInterface|callable|string|array{0: class-string|object, 1?: string} $definition */
             $middleware = $this->resolveMiddleware($definition);
             $handler = new class ($middleware, $handler) implements RequestHandlerInterface {
                 private MiddlewareInterface $middleware;
@@ -57,9 +58,9 @@ class MiddlewarePipeline implements RequestHandlerInterface
     }
 
     /**
-     * @param callable|string|array{0: class-string|object, 1?: string} $definition
+     * @param MiddlewareInterface|callable|string|array{0: class-string|object, 1?: string} $definition
      */
-    private function resolveMiddleware(callable|string|array $definition): MiddlewareInterface
+    private function resolveMiddleware(MiddlewareInterface|callable|string|array $definition): MiddlewareInterface
     {
         if ($definition instanceof MiddlewareInterface) {
             return $definition;

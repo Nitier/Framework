@@ -34,7 +34,7 @@ class InfoController
                 'Гибкая система маршрутов, включая атрибуты',
                 'Поддержка middleware на глобальном и маршрутном уровне',
             ],
-            'footer' => 'Шаблон находится в test-app/template/about.php',
+            'footer' => 'Шаблон находится в examples/test-app/template/about.php',
         ]);
 
         return new HtmlResponse($html);

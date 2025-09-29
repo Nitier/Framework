@@ -124,7 +124,7 @@ Middleware могут быть:
 
 ## Поток для `/docs`
 
-1. В `test-app/config/http.php` создаётся группа `/docs`.
+1. В `examples/test-app/config/http.php` создаётся группа `/docs`.
 2. `/docs/` — список Markdown-файлов из `docs/` сгенерированный `DocsController`.
 3. `/docs/{slug}` — конвертирует Markdown в HTML и отдаёт через `HtmlResponse`.
 
@@ -136,4 +136,4 @@ Middleware могут быть:
 - Используйте имена маршрутов (`Route::name()`), чтобы ссылаться на них в шаблонах и редиректах.
 - Старайтесь, чтобы маршруты были иммутабельны — не изменяйте `Route` после регистрации.
 
-Дополнительные темы: middleware (`middleware.md`), структура ответов (`responses.md`), шаблонизация (`templates.md`).
+Дополнительные темы: [middleware](middleware.md), [структура ответов](responses.md), [шаблонизация](templates.md).

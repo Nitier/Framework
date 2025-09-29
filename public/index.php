@@ -14,6 +14,7 @@ $kernel->loadApplication(implode(
     DIRECTORY_SEPARATOR,
     [
         dirname(__DIR__),
+        'examples',
         'test-app'
     ]
 ));

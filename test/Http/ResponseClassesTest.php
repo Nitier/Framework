@@ -7,6 +7,8 @@ namespace Test\Http;
 use Framework\Http\Message\EmptyResponse;
 use Framework\Http\Message\HtmlResponse;
 use Framework\Http\Message\JsonResponse;
+use Framework\Http\Message\RedirectResponse;
+use Framework\Http\Message\TextResponse;
 use PHPUnit\Framework\TestCase;
 
 class ResponseClassesTest extends TestCase
@@ -36,5 +38,30 @@ class ResponseClassesTest extends TestCase
         $body = $response->getBody();
         $body->rewind();
         self::assertSame('', $body->getContents());
+    }
+
+    public function testRedirectResponseSetsLocationHeader(): void
+    {
+        $response = new RedirectResponse('https://example.com');
+        self::assertSame(302, $response->getStatusCode());
+        self::assertSame('https://example.com', $response->getHeaderLine('Location'));
+        $body = $response->getBody();
+        $body->rewind();
+        self::assertSame('', $body->getContents());
+    }
+
+    public function testRedirectResponseValidatesStatusCode(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new RedirectResponse('https://example.com', 200);
+    }
+
+    public function testTextResponseSetsContentType(): void
+    {
+        $response = new TextResponse('Plain');
+        self::assertSame('text/plain; charset=utf-8', $response->getHeaderLine('Content-Type'));
+        $body = $response->getBody();
+        $body->rewind();
+        self::assertSame('Plain', $body->getContents());
     }
 }

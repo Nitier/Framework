@@ -4,9 +4,9 @@
 
 ## TemplateRenderer
 
-Расположен в `test-app/src/Service/TemplateRenderer.php`.
+Расположен в `examples/test-app/src/Service/TemplateRenderer.php`.
 
-- Определяет базовый каталог шаблонов (по умолчанию `test-app/template`).
+- Определяет базовый каталог шаблонов (по умолчанию `examples/test-app/template`).
 - Метод `render($template, array $parameters = [])` подключает PHP-файл, передавая параметры в локальную область видимости.
 - Автоматически выполняет `ob_start()`/`ob_get_clean()` и выбрасывает исключение, если файл не найден.
 
@@ -24,7 +24,7 @@ return new HtmlResponse($html);
 
 ## MarkdownRenderer
 
-Находится в `test-app/src/Service/MarkdownRenderer.php`. Конвертирует простой Markdown в HTML, поддерживает:
+Находится в `examples/test-app/src/Service/MarkdownRenderer.php`. Конвертирует простой Markdown в HTML, поддерживает:
 
 - заголовки `#`, `##` и т.д.;
 - ненумерованные списки `- item`;
@@ -36,10 +36,10 @@ return new HtmlResponse($html);
 ## Сайт документации `/docs`
 
 1. **Контроллер.** `DocsController` собирает Markdown-файлы из `docs/`, читает содержимое и преобразует его в HTML через `MarkdownRenderer`.
-2. **Маршруты.** В `test-app/config/http.php` добавляется группа `/docs`:
+2. **Маршруты.** В `examples/test-app/config/http.php` добавляется группа `/docs`:
    - `/docs` — список доступных файлов (`docs/index.php`).
    - `/docs/{slug}` — отдельная статья (`docs/article.php`).
-3. **Шаблоны.** Находятся в `test-app/template/docs/`.
+3. **Шаблоны.** Находятся в `examples/test-app/template/docs/`.
 
 Это демонстрирует, как можно расширить приложение без правок ядра и как подключать дополнительные сервисы через DI.
 
@@ -66,7 +66,7 @@ return [
 
 ## Хранение ресурсных файлов
 
-- HTML/PHP-шаблоны — в `test-app/template/`.
+- HTML/PHP-шаблоны — в `examples/test-app/template/`.
 - Markdown-документация — в `docs/`.
 - Статические файлы (css/js) можно положить в `public/` и ссылаться на них напрямую.
 

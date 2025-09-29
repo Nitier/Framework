@@ -1,6 +1,9 @@
 <?php
 
 use DI\Container;
+use Framework\Debug\HtmlDebugger;
+use Framework\Http\ErrorPageRenderer;
+use Framework\Http\Message\HtmlResponse;
 use Framework\Http\Message\ServerRequest;
 use Framework\Http\ResponseEmitter;
 use Framework\Http\ResponseFactory;
@@ -85,7 +88,21 @@ return [
         return $router;
     },
     Kernel::ERROR_HANDLER_NOT_FOUND => value(
-        static fn(ServerRequestInterface $request) => ResponseFactory::from('Not Found', 404)
+        static function (ServerRequestInterface $request): HtmlResponse {
+            return new HtmlResponse(
+                ErrorPageRenderer::render(
+                    404,
+                    'Page Not Found',
+                    'The page you are looking for could not be located or may have been moved.',
+                    [
+                        'Check the URL for typos or outdated links.',
+                        'Return to the homepage or navigate using the main menu.',
+                        'If you believe this is an error, contact the site owner.',
+                    ]
+                ),
+                404
+            );
+        }
     ),
     Kernel::ERROR_HANDLER_METHOD_NOT_ALLOWED => value(
         static function (ServerRequestInterface $request, array $allowedMethods) {
@@ -101,5 +118,8 @@ return [
     ),
     ResponseEmitter::class => static function (): ResponseEmitter {
         return new ResponseEmitter();
+    },
+    HtmlDebugger::class => static function (): HtmlDebugger {
+        return new HtmlDebugger();
     },
 ];

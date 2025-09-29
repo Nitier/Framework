@@ -6,9 +6,11 @@ namespace Framework;
 
 use DI\Container;
 use DI\ContainerBuilder;
+use Framework\Debug\HtmlDebugger;
 use Framework\General\Environment;
 use Framework\General\Mode;
 use Framework\General\Path;
+use Framework\Http\Message\HtmlResponse;
 use Framework\Http\Message\ServerRequest;
 use Framework\Http\Middleware\MiddlewarePipeline;
 use Framework\Http\ResponseFactory;
@@ -137,6 +139,8 @@ class Kernel
 
     public function handle(?ServerRequestInterface $request = null, bool $emit = true): ResponseInterface
     {
+        $requestStart = microtime(true);
+
         if (!isset($this->container)) {
             $this->buildContainer($this->settings);
         }
@@ -173,6 +177,8 @@ class Kernel
                     }
                 );
 
+                $response = $this->decorateNotFoundResponse($request, $response, $requestStart);
+
                 return $this->finalize($response, $emit);
             }
 
@@ -181,6 +187,8 @@ class Kernel
                 [$request],
                 static fn(ServerRequestInterface $req): ResponseInterface => ResponseFactory::from('Not Found', 404)
             );
+
+            $response = $this->decorateNotFoundResponse($request, $response, $requestStart);
 
             return $this->finalize($response, $emit);
         }
@@ -192,6 +200,8 @@ class Kernel
                 [$request],
                 static fn(ServerRequestInterface $req): ResponseInterface => ResponseFactory::from('Not Found', 404)
             );
+
+            $response = $this->decorateNotFoundResponse($request, $response, $requestStart);
 
             return $this->finalize($response, $emit);
         }
@@ -217,22 +227,50 @@ class Kernel
             $handler
         );
 
+        /** @var Mode|null $mode */
+        $mode = $this->get(Mode::class);
+        $caughtException = null;
+
         try {
             $response = $middlewarePipeline->handle($request);
         } catch (Throwable $exception) {
-            /** @var Mode|null $mode */
-            $mode = $this->get(Mode::class);
-            if ($mode !== null && $mode->isDebug()) {
-                throw $exception;
-            }
-
-            $response = $this->resolveErrorResponse(
-                self::ERROR_HANDLER_EXCEPTION,
-                [$request, $exception],
-                static function (ServerRequestInterface $req, Throwable $e): ResponseInterface {
-                    return ResponseFactory::from('Internal Server Error', 500);
+            $caughtException = $exception;
+            if ($mode instanceof Mode && $mode->isDebug()) {
+                if (!$this->expectsHtml($request)) {
+                    throw $exception;
                 }
-            );
+
+                $response = $this->resolveErrorResponse(
+                    self::ERROR_HANDLER_EXCEPTION,
+                    [$request, $exception],
+                    fn(ServerRequestInterface $req, Throwable $e): ResponseInterface => new HtmlResponse(
+                        $this->renderExceptionDocument($e),
+                        500
+                    )
+                );
+
+                if (!$this->isHtmlResponse($response)) {
+                    $response = new HtmlResponse(
+                        $this->renderExceptionDocument($exception),
+                        $response->getStatusCode()
+                    );
+                }
+            } else {
+                $response = $this->resolveErrorResponse(
+                    self::ERROR_HANDLER_EXCEPTION,
+                    [$request, $exception],
+                    static function (ServerRequestInterface $req, Throwable $e): ResponseInterface {
+                        return ResponseFactory::from('Internal Server Error', 500);
+                    }
+                );
+            }
+        }
+
+        $durationMs = (microtime(true) - $requestStart) * 1000;
+
+        if ($mode instanceof Mode && $mode->isDebug()) {
+            $context = $this->buildDebugContext($request, $caughtException, $durationMs);
+            $response = $this->decorateWithDebugger($request, $response, $context);
         }
 
         return $this->finalize($response, $emit);
@@ -261,6 +299,336 @@ class Kernel
         }
 
         return $response;
+    }
+
+    private function decorateNotFoundResponse(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        float $requestStart
+    ): ResponseInterface {
+        /** @var Mode|null $mode */
+        $mode = $this->get(Mode::class);
+        if (!$mode instanceof Mode || !$mode->isDebug()) {
+            return $response;
+        }
+
+        if (!$this->expectsHtml($request)) {
+            return $response;
+        }
+
+        $durationMs = (microtime(true) - $requestStart) * 1000;
+        $context = $this->buildDebugContext($request, null, $durationMs);
+        return $this->decorateWithDebugger($request, $response, $context);
+    }
+
+    /**
+     * Attach the HTML debugger overlay to the outgoing response.
+     *
+     * @param array<string, mixed> $context
+     */
+    private function decorateWithDebugger(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        array $context
+    ): ResponseInterface {
+        $debugger = $this->get(HtmlDebugger::class);
+        if (!$debugger instanceof HtmlDebugger) {
+            $debugger = new HtmlDebugger();
+        }
+
+        return $debugger->decorate($request, $response, $context);
+    }
+
+    /**
+     * Build contextual information for the debugger panel.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildDebugContext(
+        ServerRequestInterface $request,
+        ?Throwable $exception = null,
+        ?float $durationMs = null
+    ): array {
+        $routeParameters = $request->getAttribute('routeParameters', []);
+        if (!is_array($routeParameters)) {
+            $routeParameters = [];
+        }
+
+        $context = [
+            'routeName' => $request->getAttribute('routeName'),
+            'routeParameters' => $routeParameters,
+            'attributes' => $this->normalizeAttributes($request->getAttributes()),
+            'environment' => $this->collectEnvironmentSnapshot(),
+            'metrics' => $this->buildMetrics($durationMs),
+            'headers' => $this->normalizeHeaders($request->getHeaders()),
+            'queryParams' => $this->normalizeContextValue($request->getQueryParams()),
+            'cookies' => $this->normalizeContextValue($request->getCookieParams()),
+            'parsedBody' => $this->normalizeContextValue($request->getParsedBody()),
+        ];
+
+        $errors = [];
+
+        if ($exception !== null) {
+            $errors['Exception'] = [
+                'type' => $exception::class,
+                'message' => $exception->getMessage(),
+                'code' => $exception->getCode(),
+                'location' => sprintf('%s:%d', $exception->getFile(), $exception->getLine()),
+                'trace' => explode("\n", $exception->getTraceAsString()),
+            ];
+        }
+
+        $lastError = error_get_last();
+        if (is_array($lastError)) {
+            $errors['Last PHP Error'] = [
+                'type' => $this->errorTypeToString((int) $lastError['type']),
+                'message' => $lastError['message'],
+                'location' => sprintf('%s:%s', $lastError['file'], $lastError['line']),
+            ];
+        }
+
+        if ($errors !== []) {
+            $context['errors'] = $errors;
+        }
+
+        return $context;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function buildMetrics(?float $durationMs): array
+    {
+        $metrics = [];
+
+        if ($durationMs !== null) {
+            $metrics['Processing Time'] = sprintf('%.2f ms', max($durationMs, 0));
+        }
+
+        $memory = memory_get_peak_usage();
+        $metrics['Peak Memory'] = sprintf('%.2f MB', $memory / 1024 / 1024);
+
+        return $metrics;
+    }
+
+    /**
+     * @param array<int|string, array<int|string, string|int|float>> $headers
+     * @return array<string, string>
+     */
+    private function normalizeHeaders(array $headers): array
+    {
+        $normalized = [];
+        foreach ($headers as $name => $values) {
+            $normalized[(string) $name] = implode(', ', array_map('strval', $values));
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<int|string, mixed> $attributes
+     * @return array<string, mixed>
+     */
+    private function normalizeAttributes(array $attributes): array
+    {
+        $normalized = [];
+        foreach ($attributes as $key => $value) {
+            if (in_array($key, ['route', 'routeName', 'routeParameters'], true)) {
+                continue;
+            }
+
+            $normalized[(string) $key] = $this->normalizeContextValue($value);
+        }
+
+        return $normalized;
+    }
+
+    private function normalizeContextValue(mixed $value, int $depth = 0): mixed
+    {
+        if ($depth > 3) {
+            if (is_object($value)) {
+                return sprintf('object(%s)', $value::class);
+            }
+
+            if (is_array($value)) {
+                return '[...]';
+            }
+
+            return $value;
+        }
+
+        if (is_array($value)) {
+            $normalized = [];
+            foreach ($value as $key => $item) {
+                $normalized[$key] = $this->normalizeContextValue($item, $depth + 1);
+            }
+            return $normalized;
+        }
+
+        if ($value instanceof \Stringable) {
+            return (string) $value;
+        }
+
+        if (is_object($value)) {
+            return sprintf('object(%s)', $value::class);
+        }
+
+        if (is_resource($value)) {
+            $type = get_resource_type($value) ?: 'resource';
+            return sprintf('resource(%s)', $type);
+        }
+
+        return $value;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function collectEnvironmentSnapshot(): array
+    {
+        $environment = $this->get(Environment::class);
+        if ($environment instanceof Environment) {
+            $snapshot = [];
+            foreach ($environment->all() as $key => $value) {
+                $snapshot[(string) $key] = $value;
+            }
+
+            return $snapshot;
+        }
+
+        return [];
+    }
+
+    private function errorTypeToString(int $type): string
+    {
+        return match ($type) {
+            E_ERROR => 'E_ERROR',
+            E_WARNING => 'E_WARNING',
+            E_PARSE => 'E_PARSE',
+            E_NOTICE => 'E_NOTICE',
+            E_CORE_ERROR => 'E_CORE_ERROR',
+            E_CORE_WARNING => 'E_CORE_WARNING',
+            E_COMPILE_ERROR => 'E_COMPILE_ERROR',
+            E_COMPILE_WARNING => 'E_COMPILE_WARNING',
+            E_USER_ERROR => 'E_USER_ERROR',
+            E_USER_WARNING => 'E_USER_WARNING',
+            E_USER_NOTICE => 'E_USER_NOTICE',
+            E_STRICT => 'E_STRICT',
+            E_RECOVERABLE_ERROR => 'E_RECOVERABLE_ERROR',
+            E_DEPRECATED => 'E_DEPRECATED',
+            E_USER_DEPRECATED => 'E_USER_DEPRECATED',
+            default => 'E_UNKNOWN',
+        };
+    }
+
+    private function expectsHtml(ServerRequestInterface $request): bool
+    {
+        $accept = strtolower($request->getHeaderLine('Accept'));
+        if ($accept === '') {
+            return true;
+        }
+
+        foreach (explode(',', $accept) as $segment) {
+            $segment = trim($segment);
+            if ($segment === '') {
+                continue;
+            }
+
+            $mediaType = strtolower(trim(explode(';', $segment, 2)[0]));
+            if (
+                $mediaType === 'text/html' ||
+                $mediaType === 'application/xhtml+xml' ||
+                $mediaType === '*/*'
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isHtmlResponse(ResponseInterface $response): bool
+    {
+        $contentType = strtolower($response->getHeaderLine('Content-Type'));
+        if ($contentType === '') {
+            return false;
+        }
+
+        return str_contains($contentType, 'text/html');
+    }
+
+    private function renderExceptionDocument(Throwable $exception): string
+    {
+        $title = 'Unhandled Exception';
+        $type = htmlspecialchars($exception::class, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $messageValue = $exception->getMessage();
+        $message = $messageValue !== '' ? $messageValue : '(no message)';
+        $message = htmlspecialchars($message, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $location = sprintf('%s:%d', $exception->getFile(), $exception->getLine());
+        $location = htmlspecialchars($location, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $trace = htmlspecialchars($exception->getTraceAsString(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+        return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>$title</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        body {
+            margin: 0;
+            background: #0f172a;
+            color: #e2e8f0;
+            display: grid;
+            place-items: center;
+            min-height: 100vh;
+        }
+        main {
+            max-width: 760px;
+            padding: 32px 36px;
+            border-radius: 18px;
+            background: rgba(15, 23, 42, 0.92);
+            box-shadow: 0 25px 45px rgba(15, 23, 42, 0.35);
+        }
+        h1 {
+            margin: 0 0 16px;
+            font-size: 2rem;
+        }
+        p { margin: 0 0 12px; }
+        pre {
+            margin: 24px 0 0;
+            background: rgba(15, 15, 35, 0.6);
+            padding: 16px;
+            border-radius: 12px;
+            overflow: auto;
+            line-height: 1.5;
+        }
+        .exception-type {
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #38bdf8;
+            font-size: 0.85rem;
+        }
+        .exception-message { font-size: 1.1rem; }
+        .exception-location { color: #94a3b8; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>$title</h1>
+    <p class="exception-type">$type</p>
+    <p class="exception-message">$message</p>
+    <p class="exception-location">$location</p>
+    <pre>$trace</pre>
+</main>
+</body>
+</html>
+HTML;
     }
 
     private function finalize(ResponseInterface $response, bool $emit): ResponseInterface

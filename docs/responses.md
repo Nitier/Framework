@@ -7,6 +7,8 @@
 - **`Framework\Http\Message\JsonResponse`** — сериализует данные в JSON и устанавливает заголовок `Content-Type: application/json; charset=utf-8`.
 - **`Framework\Http\Message\HtmlResponse`** — принимает HTML-строку, задаёт `Content-Type: text/html; charset=utf-8`.
 - **`Framework\Http\Message\EmptyResponse`** — отвечает статусом без тела (по умолчанию 204). Можно передать другой код, например `new EmptyResponse(304)`.
+- **`Framework\Http\Message\RedirectResponse`** — устанавливает заголовок `Location` и проверяет, что статус находится в диапазоне 3xx.
+- **`Framework\Http\Message\TextResponse`** — отдаёт текст с заголовком `Content-Type: text/plain; charset=utf-8`.
 
 ### Пример
 

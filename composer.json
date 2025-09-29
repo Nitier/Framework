@@ -18,8 +18,7 @@
   },
   "autoload": {
     "psr-4": {
-      "Framework\\": "src/",
-      "Psr\\": "src/Psr/"
+      "Framework\\": "src/"
     }
   },
   "autoload-dev": {
